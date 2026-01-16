@@ -14,9 +14,19 @@ class ONNXModelService {
         ];
         this.modelPath = '/bestf.onnx';
         this.inputSize = 640; // YOLO default input size
+
+        // Reusable canvas context for preprocessing
+        // This avoids creating new Canvas elements every frame
+        this.preprocessCanvas = document.createElement('canvas');
+        this.preprocessCanvas.width = this.inputSize;
+        this.preprocessCanvas.height = this.inputSize;
+        this.preprocessCtx = this.preprocessCanvas.getContext('2d', { willReadFrequently: true });
     }
 
     async loadModel() {
+        if (this.session) {
+            return true;
+        }
         try {
             console.log('🔄 Loading ONNX model from:', this.modelPath);
             console.log('📦 ONNX Runtime version:', ort.env.versions);
@@ -40,32 +50,31 @@ class ONNXModelService {
     }
 
     preprocessImage(imageData, width, height) {
-        const canvas = document.createElement('canvas');
-        canvas.width = this.inputSize;
-        canvas.height = this.inputSize;
-        const ctx = canvas.getContext('2d');
+        if (!this.preprocessCtx) return null;
 
-        // Draw and resize image
-        ctx.drawImage(imageData, 0, 0, this.inputSize, this.inputSize);
+        // Draw and resize image on the reusable canvas
+        this.preprocessCtx.drawImage(imageData, 0, 0, this.inputSize, this.inputSize);
 
-        const resizedData = ctx.getImageData(0, 0, this.inputSize, this.inputSize);
+        const resizedData = this.preprocessCtx.getImageData(0, 0, this.inputSize, this.inputSize);
         const pixels = resizedData.data;
 
         // Convert to RGB and normalize [0, 255] -> [0, 1]
-        const red = [];
-        const green = [];
-        const blue = [];
+        // Pre-allocate arrays if possible or use Float32Array directly to save memory
+        // For simplicity and compatibility, we keep loop but optimize
 
-        for (let i = 0; i < pixels.length; i += 4) {
-            red.push(pixels[i] / 255.0);
-            green.push(pixels[i + 1] / 255.0);
-            blue.push(pixels[i + 2] / 255.0);
+        const floatInput = new Float32Array(3 * this.inputSize * this.inputSize);
+        // Channels: Red, Green, Blue
+        const redOffset = 0;
+        const greenOffset = this.inputSize * this.inputSize;
+        const blueOffset = 2 * this.inputSize * this.inputSize;
+
+        for (let i = 0, j = 0; i < pixels.length; i += 4, j++) {
+            floatInput[redOffset + j] = pixels[i] / 255.0;
+            floatInput[greenOffset + j] = pixels[i + 1] / 255.0;
+            floatInput[blueOffset + j] = pixels[i + 2] / 255.0;
         }
 
-        // Combine into CHW format (channels, height, width)
-        const input = Float32Array.from([...red, ...green, ...blue]);
-
-        return new ort.Tensor('float32', input, [1, 3, this.inputSize, this.inputSize]);
+        return new ort.Tensor('float32', floatInput, [1, 3, this.inputSize, this.inputSize]);
     }
 
     async detect(videoElement) {
@@ -82,10 +91,17 @@ class ONNXModelService {
             const feeds = { images: inputTensor };
             const results = await this.session.run(feeds);
 
-            // Process output (YOLO format: [batch, num_detections, 85])
-            // 85 = x, y, w, h, confidence, ...class_scores
-            const output = results.output0.data;
-            const detections = this.processYOLOOutput(output, videoElement.videoWidth, videoElement.videoHeight);
+            // Process output
+            // Output name is usually "output0" for YOLOv8
+            const outputName = this.session.outputNames[0];
+            const outputTensor = results[outputName];
+
+            const detections = this.processYOLOOutput(
+                outputTensor.data,
+                outputTensor.dims,
+                videoElement.videoWidth,
+                videoElement.videoHeight
+            );
 
             return detections;
         } catch (error) {
@@ -94,46 +110,95 @@ class ONNXModelService {
         }
     }
 
-    processYOLOOutput(output, originalWidth, originalHeight) {
+    processYOLOOutput(output, dims, originalWidth, originalHeight) {
         const detections = [];
-        const numDetections = output.length / 85;
-        const confidenceThreshold = 0.5;
-        const iouThreshold = 0.4;
+        const confidenceThreshold = 0.45;
+        const iouThreshold = 0.45;
 
-        // Parse detections
-        for (let i = 0; i < numDetections; i++) {
-            const offset = i * 85;
-            const confidence = output[offset + 4];
+        // Determine shape and stride
+        // YOLOv8 default: [1, 4+nc, 8400] -> [1, 11, 8400] for 7 classes
+        // YOLOv5 or Transposed: [1, 8400, 4+nc+obj] or similar
 
-            if (confidence < confidenceThreshold) continue;
+        // Check if dims is valid
+        if (!dims || dims.length < 3) {
+            console.error('Invalid output dimensions:', dims);
+            return [];
+        }
 
-            // Get class scores
-            const classScores = output.slice(offset + 5, offset + 5 + this.labels.length);
-            const maxScore = Math.max(...classScores);
-            const classId = classScores.indexOf(maxScore);
-            const finalConfidence = confidence * maxScore;
+        let numAnchors, numChannels, isTransposed;
 
-            if (finalConfidence < confidenceThreshold) continue;
+        // dims[0] is batch size (1)
+        if (dims[1] < dims[2]) {
+            // Shape: [1, Channels, Anchors] (Standard YOLOv8)
+            numChannels = dims[1];
+            numAnchors = dims[2];
+            isTransposed = false;
+        } else {
+            // Shape: [1, Anchors, Channels] (Transposed)
+            numAnchors = dims[1];
+            numChannels = dims[2];
+            isTransposed = true;
+        }
 
-            // Get bounding box (convert from center format to corner format)
-            const x = output[offset];
-            const y = output[offset + 1];
-            const w = output[offset + 2];
-            const h = output[offset + 3];
+        // Validate channels against labels
+        // YOLOv8 logic: Channels = 4 (box) + num_classes
+        // YOLOv5 logic: Channels = 4 (box) + 1 (objectness) + num_classes
+        const hasObjectness = (numChannels === 5 + this.labels.length);
 
-            // Scale to original image size
-            const scaleX = originalWidth / this.inputSize;
-            const scaleY = originalHeight / this.inputSize;
+        // Helper to access data
+        const getData = (anchorIdx, channelIdx) => {
+            if (isTransposed) {
+                return output[anchorIdx * numChannels + channelIdx];
+            } else {
+                return output[channelIdx * numAnchors + anchorIdx];
+            }
+        };
 
-            detections.push({
-                x: (x - w / 2) * scaleX,
-                y: (y - h / 2) * scaleY,
-                width: w * scaleX,
-                height: h * scaleY,
-                confidence: finalConfidence,
-                class: classId,
-                label: this.labels[classId]
-            });
+        for (let i = 0; i < numAnchors; i++) {
+            // Check confidence/objectness first to optimize
+            let objConf = 1.0;
+            if (hasObjectness) {
+                objConf = getData(i, 4);
+                if (objConf < confidenceThreshold) continue;
+            }
+
+            // Find best class
+            let maxClassScore = -Infinity;
+            let classId = -1;
+            const classStart = hasObjectness ? 5 : 4;
+
+            for (let c = 0; c < this.labels.length; c++) {
+                if (classStart + c >= numChannels) break;
+                const score = getData(i, classStart + c);
+                if (score > maxClassScore) {
+                    maxClassScore = score;
+                    classId = c;
+                }
+            }
+
+            const finalConfidence = objConf * maxClassScore;
+
+            if (finalConfidence >= confidenceThreshold) {
+                // Get box coordinates (cx, cy, w, h)
+                const cx = getData(i, 0);
+                const cy = getData(i, 1);
+                const w = getData(i, 2);
+                const h = getData(i, 3);
+
+                // Scale to original image size
+                const scaleX = originalWidth / this.inputSize;
+                const scaleY = originalHeight / this.inputSize;
+
+                detections.push({
+                    x: (cx - w / 2) * scaleX,
+                    y: (cy - h / 2) * scaleY,
+                    width: w * scaleX,
+                    height: h * scaleY,
+                    confidence: finalConfidence,
+                    class: classId,
+                    label: this.labels[classId]
+                });
+            }
         }
 
         // Apply NMS (Non-Maximum Suppression)

@@ -1,5 +1,18 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+
+const getVietnameseLabel = (label) => {
+    const labels = {
+        'awake': 'Tỉnh táo',
+        'distracted': 'Mất tập trung',
+        'drowsy': 'Buồn ngủ',
+        'head drop': 'Gục đầu',
+        'phone': 'Dùng điện thoại',
+        'smoking': 'Hút thuốc',
+        'yawn': 'Ngáp'
+    };
+    return labels[label] || label;
+};
+import { Link, useNavigate } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
 import Navbar from '../components/layout/Navbar';
 import Footer from '../components/layout/Footer';
@@ -22,6 +35,7 @@ export default function MonitoringDashboard() {
     });
     const [recentEvents, setRecentEvents] = useState([]);
     const { showSuccess, showWarning, showError } = useToast();
+    const navigate = useNavigate();
 
     useEffect(() => {
         startTrip();
@@ -38,10 +52,62 @@ export default function MonitoringDashboard() {
         }
     };
 
-    const handleDetection = async (data) => {
+    const [isCritical, setIsCritical] = useState(false);
+    const [currentAlarmState, setCurrentAlarmState] = useState('NORMAL');
+    const audioContextRef = useRef(null);
+
+    // Initialize AudioContext
+    useEffect(() => {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        return () => {
+            if (audioContextRef.current) {
+                audioContextRef.current.close();
+            }
+        };
+    }, []);
+
+    const playTone = useCallback((frequency, type, duration) => {
+        if (!audioContextRef.current) return;
+
+        try {
+            const ctx = audioContextRef.current;
+            const oscillator = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+
+            oscillator.type = type;
+            oscillator.frequency.setValueAtTime(frequency, ctx.currentTime);
+
+            gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(ctx.destination);
+
+            oscillator.start();
+            oscillator.stop(ctx.currentTime + duration);
+        } catch (e) {
+            console.error('Audio play error:', e);
+        }
+    }, []);
+
+    const playReminderSound = useCallback(() => {
+        // Double beep
+        playTone(800, 'sine', 0.1);
+        setTimeout(() => playTone(800, 'sine', 0.1), 150);
+    }, [playTone]);
+
+    const playCriticalSound = useCallback(() => {
+        // Siren effect
+        playTone(1200, 'sawtooth', 0.3);
+        setTimeout(() => playTone(1000, 'sawtooth', 0.3), 300);
+        setTimeout(() => playTone(1200, 'sawtooth', 0.3), 600);
+    }, [playTone]);
+
+    const handleDetection = useCallback(async (data) => {
         if (!currentTrip) return;
 
-        const { detections, alarmState, statistics } = data;
+        const { detections, alarmState, triggerAlarm } = data;
+        setCurrentAlarmState(alarmState);
 
         // Update stats for each detection
         detections.forEach((detection) => {
@@ -63,67 +129,77 @@ export default function MonitoringDashboard() {
             });
         });
 
-        // Add to recent events (only for alarm states)
-        if (alarmState !== 'NORMAL' && detections.length > 0) {
-            const event = {
-                type: detections[0].label,
-                confidence: detections[0].confidence,
-                timestamp: new Date().toLocaleTimeString(),
-                alarmState
-            };
-            setRecentEvents(prev => [event, ...prev].slice(0, 10));
+        // Set visual state based on Alarm State
+        if (alarmState === 'ALARM_CRITICAL') {
+            setIsCritical(true);
+        } else {
+            setIsCritical(false);
+        }
 
-            // Send critical events to API
+        // Handle Audio Alerts (only when triggered)
+        if (triggerAlarm) {
             if (alarmState === 'ALARM_CRITICAL') {
+                playCriticalSound();
+
+                // Also log to API
                 try {
                     await apiService.createDetectionAutoTrip({
-                        event_type: detections[0].label,
-                        confidence: detections[0].confidence,
+                        event_type: detections[0]?.label || 'drowsy',
+                        confidence: detections[0]?.confidence || 0,
                         timestamp: new Date().toISOString(),
                         alarm_state: alarmState
                     });
 
-                    showError(`⚠️ NGUY HIỂM: ${getVietnameseLabel(detections[0].label)}!`);
+                    showError(`⚠️ NGUY HIỂM: ${getVietnameseLabel(detections[0]?.label || 'Buồn ngủ')}!`);
                 } catch (error) {
                     console.error('Error logging detection:', error);
                 }
-            } else if (alarmState === 'ALARM_WARNING') {
-                showWarning(`⚠️ Cảnh báo: ${getVietnameseLabel(detections[0].label)}`);
+            } else if (alarmState === 'ALARM_WARNING' || alarmState === 'ALARM_CAUTION') {
+                playReminderSound();
+                showWarning(`⚠️ Nhắc nhở: ${getVietnameseLabel(detections[0]?.label || 'Cảnh báo')}`);
             }
+
+            // Add to recent events
+            const event = {
+                type: detections[0]?.label || 'unknown',
+                confidence: detections[0]?.confidence || 0,
+                timestamp: new Date().toLocaleTimeString(),
+                alarmState
+            };
+            setRecentEvents(prev => [event, ...prev].slice(0, 10));
+        }
+    }, [currentTrip, playCriticalSound, playReminderSound, showWarning, showError]);
+
+
+
+    const getStatusColor = (detections) => {
+        // Logic for Badge color based on recent detections or state
+        if (isCritical) return 'danger';
+        if (currentAlarmState === 'ALARM_WARNING' || currentAlarmState === 'ALARM_CAUTION') return 'warning';
+        return 'success';
+    };
+
+    const handleEndTrip = async () => {
+        try {
+            await apiService.endTrip();
+            showSuccess('Hành trình đã kết thúc!');
+            navigate('/driver-dashboard');
+        } catch (error) {
+            console.error('Error ending trip:', error);
+            showError('Lỗi khi kết thúc hành trình.');
         }
     };
 
-    const getVietnameseLabel = (label) => {
-        const labels = {
-            'awake': 'Tỉnh táo',
-            'distracted': 'Mất tập trung',
-            'drowsy': 'Buồn ngủ',
-            'head drop': 'Gật đầu',
-            'phone': 'Dùng điện thoại',
-            'smoking': 'Hút thuốc',
-            'yawn': 'Ngáp'
-        };
-        return labels[label] || label;
-    };
-
-    const getStatusColor = (detections) => {
-        if (!detections || detections.length === 0) return 'success';
-
-        const dangerous = detections.some(d =>
-            ['drowsy', 'head drop', 'phone', 'smoking'].includes(d.label) && d.confidence > 0.7
-        );
-
-        if (dangerous) return 'danger';
-
-        const warning = detections.some(d =>
-            ['distracted', 'yawn'].includes(d.label) && d.confidence > 0.6
-        );
-
-        return warning ? 'warning' : 'success';
-    };
-
     return (
-        <div className="bg-background-light dark:bg-background-dark text-text-light dark:text-text-dark transition-colors duration-300 flex flex-col min-h-screen">
+        <div className="bg-background-light dark:bg-background-dark text-text-light dark:text-text-dark transition-colors duration-300 flex flex-col min-h-screen relative">
+            {/* Red Screen Alarm Overlay */}
+            <div className={`fixed inset-0 bg-red-600/30 z-50 pointer-events-none transition-opacity duration-300 ${isCritical ? 'opacity-100 animate-pulse' : 'opacity-0'}`}>
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="bg-red-600 text-white px-8 py-4 rounded-2xl shadow-2xl animate-bounce">
+                        <h1 className="text-4xl font-black uppercase tracking-widest">CẢNH BÁO NGUY HIỂM!</h1>
+                    </div>
+                </div>
+            </div>
             <Navbar />
 
             <main className="flex-grow w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -210,7 +286,10 @@ export default function MonitoringDashboard() {
                                 <span className="material-symbols-outlined text-4xl mb-2 group-hover:scale-110 transition-transform">dashboard</span>
                                 <span className="font-bold text-sm">Dashboard</span>
                             </Link>
-                            <button className="flex flex-col items-center justify-center p-5 bg-white dark:bg-secondary-dark border-2 border-red-100 dark:border-red-900/30 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-2xl shadow-sm hover:shadow-md transition-all group">
+                            <button
+                                onClick={handleEndTrip}
+                                className="flex flex-col items-center justify-center p-5 bg-white dark:bg-secondary-dark border-2 border-red-100 dark:border-red-900/30 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-2xl shadow-sm hover:shadow-md transition-all group"
+                            >
                                 <span className="material-symbols-outlined text-4xl mb-2 group-hover:scale-110 transition-transform">stop_circle</span>
                                 <span className="font-bold text-sm">Kết thúc</span>
                             </button>

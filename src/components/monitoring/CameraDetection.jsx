@@ -115,15 +115,16 @@ export default function CameraDetection({ onDetection }) {
                             const newAlarmState = smoothingRef.current.addDetection(primaryDetection.label);
                             setAlarmState(newAlarmState);
 
-                            if (smoothingRef.current.shouldTriggerAlarm()) {
+                            const shouldAlert = smoothingRef.current.shouldTriggerAlarm();
+
+                            if (onDetection) {
                                 const stats = smoothingRef.current.getStatistics();
-                                if (onDetection) {
-                                    onDetection({
-                                        detections: results,
-                                        alarmState: newAlarmState,
-                                        statistics: stats
-                                    });
-                                }
+                                onDetection({
+                                    detections: results,
+                                    alarmState: newAlarmState,
+                                    statistics: stats,
+                                    triggerAlarm: shouldAlert
+                                });
                             }
                         }
 
