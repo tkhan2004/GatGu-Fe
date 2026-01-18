@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import apiService from '../services/api';
 import Sidebar from '../components/layout/Sidebar';
 import Card from '../components/ui/Card';
+import CalendarStats from '../components/dashboard/CalendarStats';
 
 export default function DriverDashboard() {
     const { user } = useAuth();
@@ -152,7 +153,7 @@ export default function DriverDashboard() {
                                             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Click nút bên dưới để bắt đầu giám sát buồn ngủ real-time</p>
                                         </div>
                                     </div>
-                                    <Link to="/monitoring" className="w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-4 px-6 rounded-xl shadow-lg shadow-green-500/30 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-3 group">
+                                    <Link to="/camera-setup" className="w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-4 px-6 rounded-xl shadow-lg shadow-green-500/30 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-3 group">
                                         <span className="material-icons-round">play_arrow</span>
                                         <span>Bắt đầu hành trình</span>
                                         <span className="material-icons-round group-hover:translate-x-1 transition-transform">arrow_forward</span>
@@ -178,28 +179,28 @@ export default function DriverDashboard() {
                                         <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                                         <span className="text-xs text-slate-500 uppercase tracking-wider">Hôm nay</span>
                                     </div>
-                                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{durations.todayHours.toFixed(1)}h</p>
+                                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{durations.todayHours.toFixed(2)}h</p>
                                 </div>
                                 <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
                                     <div className="flex items-center gap-2 mb-2">
                                         <span className="w-2 h-2 rounded-full bg-green-500"></span>
                                         <span className="text-xs text-slate-500 uppercase tracking-wider">Tuần này</span>
                                     </div>
-                                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{durations.weekHours.toFixed(1)}h</p>
+                                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{durations.weekHours.toFixed(2)}h</p>
                                 </div>
                                 <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
                                     <div className="flex items-center gap-2 mb-2">
                                         <span className="w-2 h-2 rounded-full bg-orange-500"></span>
                                         <span className="text-xs text-slate-500 uppercase tracking-wider">Tháng này</span>
                                     </div>
-                                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{durations.monthHours.toFixed(1)}h</p>
+                                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{durations.monthHours.toFixed(2)}h</p>
                                 </div>
                                 <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
                                     <div className="flex items-center gap-2 mb-2">
                                         <span className="w-2 h-2 rounded-full bg-purple-500"></span>
                                         <span className="text-xs text-slate-500 uppercase tracking-wider">Năm nay</span>
                                     </div>
-                                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{durations.yearHours.toFixed(1)}h</p>
+                                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{durations.yearHours.toFixed(2)}h</p>
                                 </div>
                             </div>
 
@@ -230,6 +231,7 @@ export default function DriverDashboard() {
                     </div>
 
                     <div className="space-y-6">
+                        <CalendarStats />
                         <Card>
                             <div className="flex items-center justify-between mb-4">
                                 <h2 className="font-bold text-slate-900 dark:text-white">Phân tích cảnh báo</h2>

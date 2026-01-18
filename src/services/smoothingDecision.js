@@ -3,24 +3,35 @@
  * Prevents flickering and provides stable detection results
  */
 class SmoothingDecision {
-    constructor(windowSize = 10) {
+    constructor(windowSize = 20, settings = {}, detectionIntervalMs = 500) {
         this.WINDOW_SIZE = windowSize;
         this.historyQueue = [];
         this.alarmState = 'NORMAL';
         this.lastAlarmTime = 0;
-        this.ALARM_COOLDOWN = 3000; // 3 seconds between alarms
+        this.ALARM_COOLDOWN = 3000;
+        this.interval = detectionIntervalMs / 1000; // convert to seconds
+
+        // Default settings if not provided
+        this.settings = {
+            yawnThreshold: settings.yawnThreshold || 3, // frames
+            phoneUsageDuration: settings.phoneUsageDuration || 5, // seconds
+            distractionDuration: settings.distractionDuration || 3, // seconds
+            headDropDuration: settings.headDropDuration || 3, // seconds
+            eyeClosureDuration: settings.eyeClosureDuration || 3, // seconds (mapped to drowsy)
+            ...settings
+        };
     }
 
     /**
      * Add new detection label to history queue
-     * @param {string} newLabel - Detection label (awake, drowsy, head drop, etc.)
+     * @param {string} newLabel - Detection label 
      * @returns {string} Current alarm state
      */
     addDetection(newLabel) {
         // 1. Update queue (FIFO)
         this.historyQueue.push(newLabel);
         if (this.historyQueue.length > this.WINDOW_SIZE) {
-            this.historyQueue.shift(); // Remove oldest element
+            this.historyQueue.shift();
         }
 
         // 2. Count occurrences of each label in window
@@ -36,10 +47,27 @@ class SmoothingDecision {
     }
 
     /**
-     * Count occurrences of each label in history queue
+     * Count occurrences of each label in the entire history queue (for statistics)
      * @returns {Object} Label counts
      */
     countLabels() {
+        return this.countRecentLabels(this.WINDOW_SIZE * this.interval).counts;
+    }
+
+    /**
+     * Count label occurrences in the most recent X seconds
+     * @param {number} secondsDuration 
+     * @returns {Object} { counts: Object, totalFrames: number }
+     */
+    countRecentLabels(secondsDuration) {
+        // Calculate number of frames to look back
+        // Ensure at least 1 frame
+        const framesToLookBack = Math.max(1, Math.ceil(secondsDuration / this.interval));
+
+        // Get subset of queue
+        // slice(-N) takes the last N elements. If N >= length, it takes all.
+        const recentFrames = this.historyQueue.slice(-framesToLookBack);
+
         const counts = {
             drowsy: 0,
             'head drop': 0,
@@ -50,46 +78,72 @@ class SmoothingDecision {
             awake: 0
         };
 
-        this.historyQueue.forEach(label => {
+        recentFrames.forEach(label => {
             if (counts.hasOwnProperty(label)) {
                 counts[label]++;
             }
         });
 
-        return counts;
+        return { counts, totalFrames: recentFrames.length };
     }
 
     /**
      * Make decision based on label counts
-     * @param {Object} counts - Label counts
      * @returns {string} Alarm state
      */
-    makeDecision(counts) {
-        const totalFrames = this.historyQueue.length;
+    makeDecision() {
+        if (this.historyQueue.length === 0) return 'NORMAL';
 
-        // Critical: Drowsy or Head Drop > 60% of window
-        const criticalCount = counts.drowsy + counts['head drop'];
-        if (criticalCount > totalFrames * 0.6) {
+        // 1. Drowsy Check
+        // Look back exactly the duration user set.
+        // Require high confidence (e.g. 75% of frames in that window are drowsy)
+        const drowsyWindow = this.countRecentLabels(this.settings.eyeClosureDuration);
+        if (drowsyWindow.totalFrames > 0 &&
+            (drowsyWindow.counts.drowsy / drowsyWindow.totalFrames) >= 0.75) {
             return 'ALARM_CRITICAL';
         }
 
-        // Warning: Phone usage > 50% of window
-        if (counts.phone > totalFrames * 0.5) {
+        // 2. Head Drop Check
+        const headDropWindow = this.countRecentLabels(this.settings.headDropDuration);
+        if (headDropWindow.totalFrames > 0 &&
+            (headDropWindow.counts['head drop'] / headDropWindow.totalFrames) >= 0.75) {
+            return 'ALARM_CRITICAL';
+        }
+
+        // 3. Phone Check
+        // Phone usage is often continuous, but detection might flicker. 60% density is reasonable.
+        const phoneWindow = this.countRecentLabels(this.settings.phoneUsageDuration);
+        if (phoneWindow.totalFrames > 0 &&
+            (phoneWindow.counts.phone / phoneWindow.totalFrames) >= 0.6) {
             return 'ALARM_WARNING';
         }
 
-        // Warning: Smoking > 50% of window
-        if (counts.smoking > totalFrames * 0.5) {
+        // 4. Distracted Check
+        const distractedWindow = this.countRecentLabels(this.settings.distractionDuration);
+        if (distractedWindow.totalFrames > 0 &&
+            (distractedWindow.counts.distracted / distractedWindow.totalFrames) >= 0.6) {
             return 'ALARM_WARNING';
         }
 
-        // Warning: Distracted > 50% of window
-        if (counts.distracted > totalFrames * 0.5) {
+        // 5. Smoking Check (Fixed 3s)
+        const smokingWindow = this.countRecentLabels(3);
+        if (smokingWindow.totalFrames > 0 &&
+            (smokingWindow.counts.smoking / smokingWindow.totalFrames) >= 0.6) {
             return 'ALARM_WARNING';
         }
 
-        // Caution: Yawn > 40% of window
-        if (counts.yawn > totalFrames * 0.4) {
+        // 6. Yawn Check
+        // Yawn is a count threshold (frequency). We should check the larger window for this?
+        // Or check density in a reasonable window (e.g. 10s).
+        // Let's use a fixed 10s window for yawning density check or just count raw events in history?
+        // User setting: "Yawn Threshold" (e.g. 3).
+        // If we find 3 yawn frames in the last 10 seconds? That's what the old logic did roughly.
+        // Let's look at the last 15 seconds.
+        const yawnWindow = this.countRecentLabels(15);
+        // Note: Yawn events are often multi-frame. 1 real yawn might be 10 frames.
+        // The user setting "3" probably meant "3 yawns". If mapped to frames, it should be higher.
+        // But assuming the setting is directly "frames" or "sensitivity":
+        if (yawnWindow.counts.yawn >= this.settings.yawnThreshold) {
             return 'ALARM_CAUTION';
         }
 

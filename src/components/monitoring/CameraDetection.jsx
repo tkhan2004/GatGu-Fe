@@ -5,6 +5,7 @@ import SmoothingDecision from '../../services/smoothingDecision';
 export default function CameraDetection({ onDetection }) {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
+    const streamRef = useRef(null); // Store stream for reliable cleanup
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [detections, setDetections] = useState([]);
@@ -16,8 +17,24 @@ export default function CameraDetection({ onDetection }) {
     const lastTimeRef = useRef(Date.now());
     const fpsCounterRef = useRef(0);
     const frameCountRef = useRef(0);
-    const smoothingRef = useRef(new SmoothingDecision(10));
-    const SKIP_FRAMES = 10; // Increased to improve FPS
+    const getSavedSettings = () => {
+        try {
+            const saved = localStorage.getItem('detectionSettings');
+            return saved ? JSON.parse(saved) : {};
+        } catch (e) {
+            return {};
+        }
+    };
+
+    const settings = getSavedSettings();
+    const SKIP_FRAMES = 15; // 30fps / 15 = 2fps -> 500ms interval
+    const smoothingRef = useRef(new SmoothingDecision(40, settings, 500)); // Window size 40 (20s history), 500ms interval
+
+    // Prevent camera restart by using ref for callback
+    const onDetectionRef = useRef(onDetection);
+    useEffect(() => {
+        onDetectionRef.current = onDetection;
+    }, [onDetection]);
 
     // List available cameras on mount
     useEffect(() => {
@@ -35,8 +52,6 @@ export default function CameraDetection({ onDetection }) {
     }, []);
 
     useEffect(() => {
-        let stream = null;
-
         const initCamera = async () => {
             try {
                 // Load ONNX model
@@ -60,7 +75,8 @@ export default function CameraDetection({ onDetection }) {
                     constraints.video.deviceId = { exact: selectedCamera };
                 }
 
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                streamRef.current = stream; // Store in ref for cleanup
 
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
@@ -117,9 +133,9 @@ export default function CameraDetection({ onDetection }) {
 
                             const shouldAlert = smoothingRef.current.shouldTriggerAlarm();
 
-                            if (onDetection) {
+                            if (onDetectionRef.current) {
                                 const stats = smoothingRef.current.getStatistics();
-                                onDetection({
+                                onDetectionRef.current({
                                     detections: results,
                                     alarmState: newAlarmState,
                                     statistics: stats,
@@ -175,14 +191,22 @@ export default function CameraDetection({ onDetection }) {
         initCamera();
 
         return () => {
+            console.log('🔴 CameraDetection cleanup - stopping camera');
             if (animationFrameRef.current) {
                 cancelAnimationFrame(animationFrameRef.current);
             }
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => {
+                    track.stop();
+                    console.log('🔴 Stopped camera track:', track.label);
+                });
+                streamRef.current = null;
+            }
+            if (videoRef.current) {
+                videoRef.current.srcObject = null;
             }
         };
-    }, [onDetection, selectedCamera]);
+    }, [selectedCamera]);
 
     const getAlarmColor = () => {
         switch (alarmState) {

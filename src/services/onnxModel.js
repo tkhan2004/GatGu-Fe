@@ -32,7 +32,7 @@ class ONNXModelService {
             console.log('📦 ONNX Runtime version:', ort.env.versions);
 
             this.session = await ort.InferenceSession.create(this.modelPath, {
-                executionProviders: ['wasm'],
+                executionProviders: ['webgl', 'wasm'],
                 graphOptimizationLevel: 'all',
             });
 

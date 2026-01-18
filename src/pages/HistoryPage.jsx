@@ -5,6 +5,7 @@ import apiService from '../services/api';
 import Sidebar from '../components/layout/Sidebar';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
+import TripMap from '../components/history/TripMap';
 
 export default function HistoryPage() {
     const { user } = useAuth();
@@ -41,9 +42,30 @@ export default function HistoryPage() {
         }
     };
 
+    const parseDate = (dateString) => {
+        if (!dateString) return null;
+        // If string doesn't end with Z, append it to treat as UTC
+        const normalized = dateString.endsWith('Z') ? dateString : `${dateString}Z`;
+        return new Date(normalized);
+    };
+
+    const formatDateTime = (dateString) => {
+        const date = parseDate(dateString);
+        return date ? date.toLocaleString('vi-VN') : '';
+    };
+
+    const formatTimeOnly = (dateString) => {
+        const date = parseDate(dateString);
+        return date ? date.toLocaleTimeString('vi-VN') : '';
+    };
+
     const formatDuration = (start, end) => {
-        if (!end) return 'Đang diễn ra';
-        const diff = new Date(end) - new Date(start);
+        const startDate = parseDate(start);
+        const endDate = end ? parseDate(end) : new Date(); // If ongoing, compare with now
+
+        if (!startDate) return '';
+
+        const diff = endDate - startDate;
         const hours = Math.floor(diff / 3600000);
         const minutes = Math.floor((diff % 3600000) / 60000);
         return `${hours}h ${minutes}m`;
@@ -120,8 +142,8 @@ export default function HistoryPage() {
                                                 key={trip.trip_id}
                                                 onClick={() => fetchTripDetails(trip.trip_id)}
                                                 className={`w-full text-left p-4 rounded-lg transition-all ${selectedTrip === trip.trip_id
-                                                        ? 'bg-primary/10 border-2 border-primary'
-                                                        : 'bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 border-2 border-transparent'
+                                                    ? 'bg-primary/10 border-2 border-primary'
+                                                    : 'bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 border-2 border-transparent'
                                                     }`}
                                             >
                                                 <div className="flex items-start justify-between mb-2">
@@ -136,7 +158,7 @@ export default function HistoryPage() {
                                                 <div className="space-y-1 text-xs text-gray-600 dark:text-gray-400">
                                                     <p className="flex items-center gap-1">
                                                         <span className="material-icons-round text-xs">schedule</span>
-                                                        {new Date(trip.start_time).toLocaleString('vi-VN')}
+                                                        {formatDateTime(trip.start_time)}
                                                     </p>
                                                     <p className="flex items-center gap-1">
                                                         <span className="material-icons-round text-xs">timer</span>
@@ -171,7 +193,7 @@ export default function HistoryPage() {
                                         <div>
                                             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Chuyến #{tripDetails.trip_id}</h2>
                                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                                {new Date(tripDetails.start_time).toLocaleString('vi-VN')}
+                                                {formatDateTime(tripDetails.start_time)} - {tripDetails.end_time ? formatDateTime(tripDetails.end_time).split(' ')[1] : 'Hiện tại'}
                                             </p>
                                         </div>
                                         <Badge variant={getStatusBadge(tripDetails.status)} className="text-sm px-4 py-2">
@@ -196,7 +218,7 @@ export default function HistoryPage() {
                                                 <span className="text-xs text-gray-600 dark:text-gray-400 uppercase">Cảnh báo</span>
                                             </div>
                                             <p className="text-xl font-bold text-gray-900 dark:text-white">
-                                                {tripDetails.detection_logs?.length || 0}
+                                                {tripDetails.logs?.length || 0}
                                             </p>
                                         </div>
                                         <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-xl">
@@ -214,30 +236,41 @@ export default function HistoryPage() {
                                                 <span className="text-xs text-gray-600 dark:text-gray-400 uppercase">Vị trí</span>
                                             </div>
                                             <p className="text-sm font-bold text-gray-900 dark:text-white">
-                                                {tripDetails.detection_logs?.length > 0 ? 'Có' : 'Không'}
+                                                {tripDetails.logs?.length > 0 ? 'Có' : 'Không'}
                                             </p>
                                         </div>
                                     </div>
                                 </Card>
 
+                                {/* GPS Map */}
+                                {tripDetails.logs && tripDetails.logs.length > 0 && (
+                                    <Card>
+                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                                            <span className="material-icons-round text-primary">map</span>
+                                            Bản đồ hành trình
+                                        </h3>
+                                        <TripMap logs={tripDetails.logs} />
+                                    </Card>
+                                )}
+
                                 <Card>
                                     <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Nhật ký phát hiện</h3>
-                                    {!tripDetails.detection_logs || tripDetails.detection_logs.length === 0 ? (
+                                    {!tripDetails.logs || tripDetails.logs.length === 0 ? (
                                         <div className="text-center py-8">
                                             <span className="material-icons-round text-6xl text-green-300 dark:text-green-600 mb-4">check_circle</span>
                                             <p className="text-gray-500 dark:text-gray-400">Không có cảnh báo nào - Lái xe an toàn!</p>
                                         </div>
                                     ) : (
                                         <div className="space-y-3 max-h-96 overflow-y-auto">
-                                            {tripDetails.detection_logs.map((log, idx) => (
+                                            {tripDetails.logs.map((log, idx) => (
                                                 <div key={idx} className="flex items-start gap-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
                                                     <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${log.event_type === 'drowsy' || log.event_type === 'head drop' ? 'bg-red-100 dark:bg-red-900/30' :
-                                                            log.event_type === 'yawn' ? 'bg-yellow-100 dark:bg-yellow-900/30' :
-                                                                'bg-orange-100 dark:bg-orange-900/30'
+                                                        log.event_type === 'yawn' ? 'bg-yellow-100 dark:bg-yellow-900/30' :
+                                                            'bg-orange-100 dark:bg-orange-900/30'
                                                         }`}>
                                                         <span className={`material-icons-round ${log.event_type === 'drowsy' || log.event_type === 'head drop' ? 'text-red-600 dark:text-red-400' :
-                                                                log.event_type === 'yawn' ? 'text-yellow-600 dark:text-yellow-400' :
-                                                                    'text-orange-600 dark:text-orange-400'
+                                                            log.event_type === 'yawn' ? 'text-yellow-600 dark:text-yellow-400' :
+                                                                'text-orange-600 dark:text-orange-400'
                                                             }`}>
                                                             {log.event_type === 'phone' ? 'phone_iphone' :
                                                                 log.event_type === 'smoking' ? 'smoking_rooms' :
@@ -248,7 +281,7 @@ export default function HistoryPage() {
                                                         <div className="flex items-start justify-between mb-1">
                                                             <h4 className="font-semibold text-gray-900 dark:text-white capitalize">{log.event_type}</h4>
                                                             <span className="text-xs text-gray-500 dark:text-gray-400">
-                                                                {new Date(log.timestamp).toLocaleTimeString('vi-VN')}
+                                                                {formatTimeOnly(log.timestamp)}
                                                             </span>
                                                         </div>
                                                         <p className="text-sm text-gray-600 dark:text-gray-400">

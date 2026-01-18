@@ -9,6 +9,8 @@ import VehicleSetup from './pages/VehicleSetup';
 import MonitoringDashboard from './pages/MonitoringDashboard';
 import DriverDashboard from './pages/DriverDashboard';
 import HistoryPage from './pages/HistoryPage';
+import CameraSetupPage from './pages/CameraSetupPage';
+import EmergencyContactsPage from './pages/EmergencyContactsPage';
 import './styles/index.css';
 
 function App() {
@@ -52,6 +54,22 @@ function App() {
                             element={
                                 <ProtectedRoute>
                                     <HistoryPage />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/camera-setup"
+                            element={
+                                <ProtectedRoute>
+                                    <CameraSetupPage />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/emergency-contacts"
+                            element={
+                                <ProtectedRoute>
+                                    <EmergencyContactsPage />
                                 </ProtectedRoute>
                             }
                         />

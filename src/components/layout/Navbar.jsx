@@ -1,6 +1,15 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 export default function Navbar({ variant = 'default' }) {
+    const location = useLocation();
+
+    const getLinkClass = (path) => {
+        const isActive = location.pathname === path;
+        return isActive
+            ? "text-primary dark:text-white border-b-2 border-primary font-semibold transition-colors px-1 pt-1"
+            : "text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary transition-colors font-medium px-1 pt-1";
+    };
+
     if (variant === 'landing') {
         return (
             <nav className="sticky top-0 z-50 backdrop-blur-md bg-white/80 dark:bg-background-dark/80 border-b border-gray-200 dark:border-gray-700">
@@ -78,17 +87,17 @@ export default function Navbar({ variant = 'default' }) {
                         <span className="ml-2 text-xl font-bold text-primary dark:text-white">Gật Gù</span>
                     </Link>
                     <div className="hidden md:flex space-x-8">
-                        <Link className="text-primary dark:text-white border-b-2 border-primary font-semibold transition-colors px-1 pt-1" to="/monitoring">
-                            Dashboard
+                        <Link className={getLinkClass('/driver-dashboard')} to="/driver-dashboard">
+                            Tổng quan
                         </Link>
-                        <Link className="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary transition-colors font-medium px-1 pt-1" to="/driver-dashboard">
-                            History
+                        <Link className={getLinkClass('/monitoring')} to="/monitoring">
+                            Giám sát
                         </Link>
-                        <Link className="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary transition-colors font-medium px-1 pt-1" to="/monitoring">
-                            Settings
+                        <Link className={getLinkClass('/history')} to="/history">
+                            Lịch sử
                         </Link>
-                        <Link className="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary transition-colors font-medium px-1 pt-1" to="/">
-                            Help
+                        <Link className={getLinkClass('/camera-setup')} to="/camera-setup">
+                            Cài đặt
                         </Link>
                     </div>
                     <div className="hidden md:flex items-center space-x-4">

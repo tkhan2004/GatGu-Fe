@@ -6,6 +6,7 @@ import Button from '../components/ui/Button';
 export default function CameraSetupPage() {
     const navigate = useNavigate();
     const videoRef = useRef(null);
+    const streamRef = useRef(null);
     const [cameraReady, setCameraReady] = useState(false);
     const [cameraError, setCameraError] = useState(null);
     const [settings, setSettings] = useState({
@@ -30,8 +31,16 @@ export default function CameraSetupPage() {
         initCamera();
 
         return () => {
-            if (videoRef.current && videoRef.current.srcObject) {
-                videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+            console.log('🔴 CameraSetupPage cleanup - stopping camera');
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => {
+                    track.stop();
+                    console.log('🔴 Stopped camera track:', track.label);
+                });
+                streamRef.current = null;
+            }
+            if (videoRef.current) {
+                videoRef.current.srcObject = null;
             }
         };
     }, []);
@@ -45,6 +54,8 @@ export default function CameraSetupPage() {
                     facingMode: 'user'
                 }
             });
+
+            streamRef.current = stream;
 
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;

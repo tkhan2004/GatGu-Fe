@@ -20,6 +20,7 @@ import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
 import CameraDetection from '../components/monitoring/CameraDetection';
 import apiService from '../services/api';
+import voiceAlert from '../services/voiceAlert';
 
 export default function MonitoringDashboard() {
     const [currentTrip, setCurrentTrip] = useState(null);
@@ -37,14 +38,55 @@ export default function MonitoringDashboard() {
     const { showSuccess, showWarning, showError } = useToast();
     const navigate = useNavigate();
 
+    const isTripActiveRef = useRef(false);
+    const currentLocationRef = useRef(null);
+
+    // Request and track GPS location
+    useEffect(() => {
+        if ('geolocation' in navigator) {
+            // Request permission and get initial location
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const location = `${position.coords.latitude},${position.coords.longitude}`;
+                    currentLocationRef.current = location;
+                    console.log('📍 GPS location obtained:', location);
+                },
+                (error) => {
+                    console.warn('GPS permission denied or unavailable:', error);
+                }
+            );
+
+            // Update location every 30 seconds during trip
+            const locationInterval = setInterval(() => {
+                if (isTripActiveRef.current) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const location = `${position.coords.latitude},${position.coords.longitude}`;
+                            currentLocationRef.current = location;
+                        },
+                        (error) => {
+                            console.warn('GPS update failed:', error);
+                        }
+                    );
+                }
+            }, 30000); // Update every 30 seconds
+
+            return () => clearInterval(locationInterval);
+        }
+    }, []);
+
     useEffect(() => {
         startTrip();
+        return () => {
+            isTripActiveRef.current = false;
+        };
     }, []);
 
     const startTrip = async () => {
         try {
             const trip = await apiService.startTrip();
             setCurrentTrip(trip);
+            isTripActiveRef.current = true;
             showSuccess('Đã bắt đầu hành trình!');
         } catch (error) {
             console.error('Error starting trip:', error);
@@ -104,7 +146,7 @@ export default function MonitoringDashboard() {
     }, [playTone]);
 
     const handleDetection = useCallback(async (data) => {
-        if (!currentTrip) return;
+        if (!currentTrip || !isTripActiveRef.current) return;
 
         const { detections, alarmState, triggerAlarm } = data;
         setCurrentAlarmState(alarmState);
@@ -138,14 +180,29 @@ export default function MonitoringDashboard() {
 
         // Handle Audio Alerts (only when triggered)
         if (triggerAlarm) {
+            // Load settings to check if voice alert is enabled
+            const settings = JSON.parse(localStorage.getItem('detectionSettings') || '{}');
+            const enableVoiceAlert = settings.enableVoiceAlert !== false; // default true
+
             if (alarmState === 'ALARM_CRITICAL') {
                 playCriticalSound();
+
+                // Voice alert based on detection type
+                if (enableVoiceAlert) {
+                    const label = detections[0]?.label;
+                    if (label === 'drowsy') {
+                        voiceAlert.alertDrowsy();
+                    } else if (label === 'head drop') {
+                        voiceAlert.alertHeadDrop();
+                    }
+                }
 
                 // Also log to API
                 try {
                     await apiService.createDetectionAutoTrip({
                         event_type: detections[0]?.label || 'drowsy',
                         confidence: detections[0]?.confidence || 0,
+                        gps_location: currentLocationRef.current,
                         timestamp: new Date().toISOString(),
                         alarm_state: alarmState
                     });
@@ -154,8 +211,33 @@ export default function MonitoringDashboard() {
                 } catch (error) {
                     console.error('Error logging detection:', error);
                 }
-            } else if (alarmState === 'ALARM_WARNING' || alarmState === 'ALARM_CAUTION') {
+            } else if (alarmState === 'ALARM_WARNING') {
                 playReminderSound();
+
+                // Voice alert for warning level
+                if (enableVoiceAlert) {
+                    const label = detections[0]?.label;
+                    if (label === 'phone') {
+                        voiceAlert.alertPhone();
+                    } else if (label === 'distracted') {
+                        voiceAlert.alertDistracted();
+                    } else if (label === 'smoking') {
+                        voiceAlert.alertSmoking();
+                    }
+                }
+
+                showWarning(`⚠️ Nhắc nhở: ${getVietnameseLabel(detections[0]?.label || 'Cảnh báo')}`);
+            } else if (alarmState === 'ALARM_CAUTION') {
+                playReminderSound();
+
+                // Voice alert for caution level
+                if (enableVoiceAlert) {
+                    const label = detections[0]?.label;
+                    if (label === 'yawn') {
+                        voiceAlert.alertYawn();
+                    }
+                }
+
                 showWarning(`⚠️ Nhắc nhở: ${getVietnameseLabel(detections[0]?.label || 'Cảnh báo')}`);
             }
 
@@ -180,6 +262,7 @@ export default function MonitoringDashboard() {
     };
 
     const handleEndTrip = async () => {
+        isTripActiveRef.current = false;
         try {
             await apiService.endTrip();
             showSuccess('Hành trình đã kết thúc!');
