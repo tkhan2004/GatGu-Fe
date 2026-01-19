@@ -21,6 +21,12 @@ class ONNXModelService {
         this.preprocessCanvas.width = this.inputSize;
         this.preprocessCanvas.height = this.inputSize;
         this.preprocessCtx = this.preprocessCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Small canvas for brightness analysis (64x64)
+        this.analyzeCanvas = document.createElement('canvas');
+        this.analyzeCanvas.width = 64;
+        this.analyzeCanvas.height = 64;
+        this.analyzeCtx = this.analyzeCanvas.getContext('2d', { willReadFrequently: true });
     }
 
     async loadModel() {
@@ -50,18 +56,66 @@ class ONNXModelService {
     }
 
     preprocessImage(imageData, width, height) {
-        if (!this.preprocessCtx) return null;
+        if (!this.preprocessCtx || !this.analyzeCtx) return null;
 
-        // Draw and resize image on the reusable canvas
+        // --- Step 1: Analyze Brightness (Downsampling) ---
+        // Resize to 64x64 for fast analysis
+        this.analyzeCtx.drawImage(imageData, 0, 0, 64, 64);
+        const analyzeData = this.analyzeCtx.getImageData(0, 0, 64, 64);
+        const brightness = this.calculateBrightness(analyzeData.data);
+
+        // --- Step 2: Adaptive Processing Setup ---
+        // Reset filters
+        this.preprocessCtx.filter = 'none';
+
+        let applyGammaValue = null;
+        let applyCLAHEValue = null;
+        let applySharpen = false;
+
+        // Apply Logic based on Algorithm
+        if (brightness < 60) {
+            // Environment: Dark (Tunnel/Night)
+            // 1. Gamma 2.0
+            applyGammaValue = 2.0;
+            // 2. Gaussian Blur (kernel 5x5) -> approx via canvas filter
+            this.preprocessCtx.filter = 'blur(2px)';
+            // 3. CLAHE 3.0
+            applyCLAHEValue = 3.0;
+        } else if (brightness > 180) {
+            // Environment: Bright (Backlight)
+            // 1. Gamma 0.6
+            applyGammaValue = 0.6;
+            // 2. Gaussian Blur (kernel 3x3) -> approx via canvas filter
+            this.preprocessCtx.filter = 'blur(1px)';
+            // 3. CLAHE 1.5
+            applyCLAHEValue = 1.5;
+        } else {
+            // Environment: Normal
+            // 1. Sharpen
+            applySharpen = true;
+        }
+
+        // --- Step 3: Draw and Get Data ---
+        // Draw to main canvas (applying Blur if set via ctx.filter)
         this.preprocessCtx.drawImage(imageData, 0, 0, this.inputSize, this.inputSize);
 
         const resizedData = this.preprocessCtx.getImageData(0, 0, this.inputSize, this.inputSize);
         const pixels = resizedData.data;
 
-        // Convert to RGB and normalize [0, 255] -> [0, 1]
-        // Pre-allocate arrays if possible or use Float32Array directly to save memory
-        // For simplicity and compatibility, we keep loop but optimize
+        // --- Step 4: Apply Pixel-level Filters ---
+        if (applyGammaValue) {
+            this.applyGamma(pixels, applyGammaValue);
+        }
 
+        if (applyCLAHEValue) {
+            this.applyCLAHE(pixels, applyCLAHEValue);
+        }
+
+        if (applySharpen) {
+            this.applySharpen(pixels, this.inputSize, this.inputSize);
+        }
+
+        // --- Step 5: Normalization [0, 255] -> [0, 1] ---
         const floatInput = new Float32Array(3 * this.inputSize * this.inputSize);
         // Channels: Red, Green, Blue
         const redOffset = 0;
@@ -75,6 +129,126 @@ class ONNXModelService {
         }
 
         return new ort.Tensor('float32', floatInput, [1, 3, this.inputSize, this.inputSize]);
+    }
+
+    // --- Helper Algorithms ---
+
+    calculateBrightness(data) {
+        let sum = 0;
+        let count = 0;
+        // Sample with step 4 (every pixel) or more for speed
+        for (let i = 0; i < data.length; i += 4) {
+            // weighted RGB to Gray
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            // Y = 0.299R + 0.587G + 0.114B
+            sum += (0.299 * r + 0.587 * g + 0.114 * b);
+            count++;
+        }
+        return count > 0 ? sum / count : 0;
+    }
+
+    applyGamma(pixels, gamma) {
+        const lut = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) {
+            lut[i] = Math.max(0, Math.min(255, Math.pow(i / 255, 1 / gamma) * 255));
+        }
+        for (let i = 0; i < pixels.length; i += 4) {
+            pixels[i] = lut[pixels[i]];
+            pixels[i + 1] = lut[pixels[i + 1]];
+            pixels[i + 2] = lut[pixels[i + 2]];
+        }
+    }
+
+    applySharpen(pixels, w, h) {
+        // Simple 3x3 Sharpen Kernel:
+        //  0 -1  0
+        // -1  5 -1
+        //  0 -1  0
+
+        // Clone source to not read modified pixels
+        const src = new Uint8ClampedArray(pixels);
+
+        for (let y = 1; y < h - 1; y++) {
+            for (let x = 1; x < w - 1; x++) {
+                const idx = (y * w + x) * 4;
+
+                // Helper to get pixel val
+                const getVal = (ox, oy, channel) => src[((y + oy) * w + (x + ox)) * 4 + channel];
+
+                for (let c = 0; c < 3; c++) {
+                    const val =
+                        -1 * getVal(0, -1, c) +
+                        -1 * getVal(-1, 0, c) +
+                        5 * getVal(0, 0, c) +
+                        -1 * getVal(1, 0, c) +
+                        -1 * getVal(0, 1, c);
+
+                    pixels[idx + c] = Math.max(0, Math.min(255, val));
+                }
+                // Alpha remains same
+            }
+        }
+    }
+
+    // Simplified CLAHE (Global Contrast Limited Histogram Equalization)
+    applyCLAHE(pixels, clipLimitValue) {
+        // 1. Calculate L channel Histogram
+        const histogram = new Uint32Array(256).fill(0);
+        const totalPixels = pixels.length / 4;
+
+        for (let i = 0; i < pixels.length; i += 4) {
+            const l = Math.round(0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]);
+            histogram[l]++;
+        }
+
+        // 2. Clip Histogram
+        // Clip Limit calculation: simplistic approach
+        // If uniform, each bin has totalPixels/256. 
+        // clipLimitValue is a factor (e.g. 3.0x average)
+        const limit = Math.max(1, Math.round(clipLimitValue * (totalPixels / 256)));
+        let excess = 0;
+
+        for (let i = 0; i < 256; i++) {
+            if (histogram[i] > limit) {
+                excess += histogram[i] - limit;
+                histogram[i] = limit;
+            }
+        }
+
+        // 3. Redistribute Excess uniformly
+        const increase = excess / 256;
+        for (let i = 0; i < 256; i++) {
+            histogram[i] += increase;
+        }
+
+        // 4. CDF & Mapping
+        const mapping = new Uint8Array(256);
+        let cdf = 0;
+        for (let i = 0; i < 256; i++) {
+            cdf += histogram[i];
+            mapping[i] = Math.max(0, Math.min(255, Math.round((cdf / totalPixels) * 255)));
+        }
+
+        // 5. Apply Mapping (Preserving Color Ratios)
+        for (let i = 0; i < pixels.length; i += 4) {
+            const r = pixels[i];
+            const g = pixels[i + 1];
+            const b = pixels[i + 2];
+            const l = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+
+            const newL = mapping[l];
+
+            if (l === 0) continue;
+
+            // Scale RGB by newL / oldL to preserve color 
+            const scale = newL / l;
+
+            pixels[i] = Math.max(0, Math.min(255, r * scale));
+            pixels[i + 1] = Math.max(0, Math.min(255, g * scale));
+            pixels[i + 2] = Math.max(0, Math.min(255, b * scale));
+        }
     }
 
     async detect(videoElement) {
