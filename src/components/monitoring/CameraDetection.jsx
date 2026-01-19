@@ -133,13 +133,24 @@ export default function CameraDetection({ onDetection }) {
 
                             const shouldAlert = smoothingRef.current.shouldTriggerAlarm();
 
+                            let imageSrc = null;
+                            if (shouldAlert && newAlarmState === 'ALARM_CRITICAL') {
+                                // Capture low-res snapshot for alert
+                                try {
+                                    imageSrc = canvas.toDataURL('image/jpeg', 0.6);
+                                } catch (e) {
+                                    console.error("Snapshot failed:", e);
+                                }
+                            }
+
                             if (onDetectionRef.current) {
                                 const stats = smoothingRef.current.getStatistics();
                                 onDetectionRef.current({
                                     detections: results,
                                     alarmState: newAlarmState,
                                     statistics: stats,
-                                    triggerAlarm: shouldAlert
+                                    triggerAlarm: shouldAlert,
+                                    imageSrc: imageSrc
                                 });
                             }
                         }

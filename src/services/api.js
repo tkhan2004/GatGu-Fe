@@ -264,6 +264,13 @@ class ApiService {
         });
     }
 
+    async sendAlert(alertData) {
+        return await this.request('/ai/alert', {
+            method: 'POST',
+            body: JSON.stringify(alertData),
+        });
+    }
+
     async getContacts() {
         return await this.request('/contacts/');
     }

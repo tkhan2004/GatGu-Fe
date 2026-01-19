@@ -145,10 +145,13 @@ export default function MonitoringDashboard() {
         setTimeout(() => playTone(1200, 'sawtooth', 0.3), 600);
     }, [playTone]);
 
+    const lastAlertTimeRef = useRef(0);
+    const ALERT_COOLDOWN = 15000; // 15 seconds
+
     const handleDetection = useCallback(async (data) => {
         if (!currentTrip || !isTripActiveRef.current) return;
 
-        const { detections, alarmState, triggerAlarm } = data;
+        const { detections, alarmState, triggerAlarm, imageSrc } = data; // Assuming imageSrc might be passed, or we ignore for now
         setCurrentAlarmState(alarmState);
 
         // Update stats for each detection
@@ -197,20 +200,37 @@ export default function MonitoringDashboard() {
                     }
                 }
 
-                // Also log to API
-                try {
-                    await apiService.createDetectionAutoTrip({
-                        event_type: detections[0]?.label || 'drowsy',
-                        confidence: detections[0]?.confidence || 0,
-                        gps_location: currentLocationRef.current,
-                        timestamp: new Date().toISOString(),
-                        alarm_state: alarmState
-                    });
+                // API Logging & Telegram Alert (Throttled)
+                const now = Date.now();
+                if (now - lastAlertTimeRef.current > ALERT_COOLDOWN) {
+                    lastAlertTimeRef.current = now;
 
-                    showError(`⚠️ NGUY HIỂM: ${getVietnameseLabel(detections[0]?.label || 'Buồn ngủ')}!`);
-                } catch (error) {
-                    console.error('Error logging detection:', error);
+                    try {
+                        // 1. Log to DB
+                        await apiService.createDetectionAutoTrip({
+                            event_type: detections[0]?.label || 'drowsy',
+                            confidence: detections[0]?.confidence || 0,
+                            gps_location: currentLocationRef.current,
+                            timestamp: new Date().toISOString(),
+                            alarm_state: alarmState
+                        });
+
+                        // 2. Send Telegram Alert (with snapshot if available in data.imageSrc)
+                        // Note: CameraDetection needs to pass 'imageSrc' (base64) for this to work with photo.
+                        // If not, it sends text only.
+                        await apiService.sendAlert({
+                            event_type: detections[0]?.label || 'drowsy',
+                            confidence: detections[0]?.confidence || 0,
+                            gps_location: currentLocationRef.current,
+                            image_base64: imageSrc || null
+                        });
+
+                        showError(`⚠️ NGUY HIỂM: ${getVietnameseLabel(detections[0]?.label || 'Buồn ngủ')}! (Đã báo Telegram)`);
+                    } catch (error) {
+                        console.error('Error logging/alerting:', error);
+                    }
                 }
+
             } else if (alarmState === 'ALARM_WARNING') {
                 playReminderSound();
 

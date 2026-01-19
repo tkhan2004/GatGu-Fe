@@ -223,6 +223,7 @@ export default function EmergencyContactsPage() {
                                                     <span className="material-icons-round text-sm">phone</span>
                                                     {contact.phone_number}
                                                 </p>
+                                                <ConnectionStatus contact={contact} />
                                             </div>
                                         </div>
                                         <div className="flex gap-2">
@@ -256,8 +257,13 @@ export default function EmergencyContactsPage() {
                                     Thông tin quan trọng
                                 </h4>
                                 <p className="text-sm text-blue-700 dark:text-blue-300">
-                                    Khi hệ thống phát hiện bạn buồn ngủ hoặc nguy hiểm, tin nhắn SMS sẽ được gửi tới các liên hệ đã kích hoạt.
-                                    Hãy đảm bảo số điện thoại chính xác.
+                                    Khi hệ thống phát hiện bạn buồn ngủ, tin nhắn cảnh báo sẽ được gửi qua Telegram tới người thân.
+                                    Để nhận tin nhắn, hãy bảo người thân làm như sau:
+                                    <ul className="list-disc ml-5 mt-2 space-y-1">
+                                        <li>Cài đặt ứng dụng Telegram</li>
+                                        <li>Tìm bot <strong>{'@PhatHienBuonNgu_bot'}</strong></li>
+                                        <li>Nhắn tin theo cú pháp: <strong>/start &lt;Mã Kết Nối&gt;</strong></li>
+                                    </ul>
                                 </p>
                             </div>
                         </div>
@@ -267,3 +273,23 @@ export default function EmergencyContactsPage() {
         </div>
     );
 }
+
+// Helper component for Connection Status
+const ConnectionStatus = ({ contact }) => {
+    if (contact.telegram_chat_id) {
+        return (
+            <div className="mt-2 text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
+                <span className="material-icons-round text-sm">link</span>
+                <span>Đã liên kết Telegram</span>
+            </div>
+        );
+    }
+    return (
+        <div className="mt-2 bg-yellow-50 dark:bg-yellow-900/20 p-2 rounded-lg border border-yellow-100 dark:border-yellow-900/30">
+            <p className="text-xs text-yellow-800 dark:text-yellow-200 font-medium mb-1">Chưa liên kết Telegram</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+                Mã kết nối: <span className="font-mono font-bold bg-white dark:bg-slate-800 px-1 rounded border dark:border-slate-700 select-all cursor-pointer">{contact.connection_code || "Đang tạo..."}</span>
+            </p>
+        </div>
+    );
+};
