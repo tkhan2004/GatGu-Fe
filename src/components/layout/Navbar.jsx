@@ -18,10 +18,10 @@ export default function Navbar({ variant = 'default' }) {
                         <Link to="/" className="flex-shrink-0 flex items-center">
                             <img
                                 alt="Gật Gù Logo"
-                                className="h-10 w-auto"
-                                src="https://lh3.googleusercontent.com/aida-public/AB6AXuBw98GqTGeT_3A0xKVE844nQs3NV8XrRVgvTYAs9pW4DYV02zdP3W-DpM6vlR0rFw8NIw4hnG3Jl7Jb_3SNcGZyIqFXeW7Zf4EwmEMHKjKa7fJkBGfXLVSAs828uh01h36albsonoXo7LIGd7KmLlGgkmc2pJiJt-Qzgv2q2zmxQaYLR7Ck7C7Ot2mdRUwbENHIeaEpC4sEV2ZucDIJZG4OmX94DKGwlc0j2SglzOdgKzUi9LzVIHBNS14ki3Q7PtOKFt6yPfOmtZOm"
+                                className="h-16 w-auto"
+                                src="Logo (2).png"
                             />
-                            <span className="ml-2 text-xl font-bold text-primary dark:text-white">Gật Gù</span>
+                            {/* <span className="ml-2 text-xl font-bold text-primary dark:text-white">Gật Gù</span> */}
                         </Link>
                         <div className="hidden md:flex space-x-8">
                             <a className="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary transition-colors font-medium" href="#features">

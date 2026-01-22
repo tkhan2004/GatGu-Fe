@@ -46,9 +46,12 @@ export default function RegistrationStep1() {
                     <div className="absolute inset-0 z-0 opacity-10 dark:opacity-5" style={{ backgroundImage: 'radial-gradient(#1a71ff 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
                     <div className="relative z-10 flex flex-col h-full p-12 justify-between">
                         <div>
-                            <Link to="/" className="flex items-center gap-2 mb-2">
-                                <span className="material-symbols-outlined text-primary text-4xl">directions_car</span>
-                                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Gật Gù</h1>
+                            <Link to="/" className="inline-block mb-2 hover:opacity-80 transition-opacity">
+                                <img 
+                                    src="/Logo (2).png" 
+                                    alt="Gật Gù Logo" 
+                                    className="h-16 w-auto object-contain"
+                                />
                             </Link>
                             <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Anti-Drowsiness Monitor</p>
                         </div>

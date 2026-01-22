@@ -48,11 +48,12 @@ export default function LoginPage() {
             {/* Top Navigation */}
             <header className="w-full border-b border-slate-200 dark:border-slate-800 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md sticky top-0 z-50">
                 <div className="max-w-[1440px] mx-auto px-6 h-16 flex items-center justify-between">
-                    <Link to="/" className="flex items-center gap-3 text-slate-900 dark:text-white group cursor-pointer">
-                        <div className="w-8 h-8 text-primary flex items-center justify-center bg-primary/10 rounded-lg group-hover:bg-primary group-hover:text-white transition-all duration-300">
-                            <span className="material-symbols-outlined text-[20px]">directions_car</span>
-                        </div>
-                        <h2 className="text-xl font-bold tracking-tight">Gật Gù</h2>
+                    <Link to="/" className="flex items-center hover:opacity-80 transition-opacity">
+                        <img 
+                            src="/Logo (2).png" 
+                            alt="Gật Gù Logo" 
+                            className="h-16 w-auto object-contain" 
+                        />
                     </Link>
                     <div className="flex items-center gap-4">
                         <span className="hidden md:block text-sm font-medium text-slate-500 dark:text-slate-400">Chưa có tài khoản?</span>
