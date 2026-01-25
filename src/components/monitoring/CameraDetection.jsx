@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import onnxModel from '../../services/onnxModel';
 import SmoothingDecision from '../../services/smoothingDecision';
 
-export default function CameraDetection({ onDetection }) {
+export default function CameraDetection({ onDetection, isPaused = false }) {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
     const streamRef = useRef(null); // Store stream for reliable cleanup
@@ -17,6 +17,7 @@ export default function CameraDetection({ onDetection }) {
     const lastTimeRef = useRef(Date.now());
     const fpsCounterRef = useRef(0);
     const frameCountRef = useRef(0);
+    const isDetectingRef = useRef(false);
     const getSavedSettings = () => {
         try {
             const saved = localStorage.getItem('detectionSettings');
@@ -95,7 +96,6 @@ export default function CameraDetection({ onDetection }) {
 
         const startDetection = async () => {
             let lastDetections = [];
-            let isDetecting = false;
 
             const detect = async () => {
                 if (!videoRef.current || !canvasRef.current) return;
@@ -115,8 +115,8 @@ export default function CameraDetection({ onDetection }) {
 
                 // Run detection every SKIP_FRAMES
                 frameCountRef.current++;
-                if (frameCountRef.current % SKIP_FRAMES === 0 && !isDetecting) {
-                    isDetecting = true;
+                if (frameCountRef.current % SKIP_FRAMES === 0 && !isDetectingRef.current && !isPaused) {
+                    isDetectingRef.current = true;
 
                     onnxModel.detect(video).then(results => {
                         lastDetections = results;
@@ -155,34 +155,36 @@ export default function CameraDetection({ onDetection }) {
                             }
                         }
 
-                        isDetecting = false;
+                        isDetectingRef.current = false;
                     }).catch(err => {
                         console.error('Detection error:', err);
-                        isDetecting = false;
+                        isDetectingRef.current = false;
                     });
                 }
 
-                // Draw bounding boxes
-                lastDetections.forEach(detection => {
-                    const { x, y, width, height, label, confidence } = detection;
-                    const color = onnxModel.getLabelColor(label);
+                // Draw bounding boxes (only when not paused)
+                if (!isPaused) {
+                    lastDetections.forEach(detection => {
+                        const { x, y, width, height, label, confidence } = detection;
+                        const color = onnxModel.getLabelColor(label);
 
-                    ctx.strokeStyle = color;
-                    ctx.lineWidth = 3;
-                    ctx.strokeRect(x, y, width, height);
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 3;
+                        ctx.strokeRect(x, y, width, height);
 
-                    const labelText = `${label} ${(confidence * 100).toFixed(0)}%`;
-                    ctx.font = 'bold 14px Inter';
-                    const textMetrics = ctx.measureText(labelText);
-                    const textHeight = 18;
-                    const padding = 4;
+                        const labelText = `${label} ${(confidence * 100).toFixed(0)}%`;
+                        ctx.font = 'bold 14px Inter';
+                        const textMetrics = ctx.measureText(labelText);
+                        const textHeight = 18;
+                        const padding = 4;
 
-                    ctx.fillStyle = color;
-                    ctx.fillRect(x, y - textHeight - padding, textMetrics.width + padding * 2, textHeight + padding);
+                        ctx.fillStyle = color;
+                        ctx.fillRect(x, y - textHeight - padding, textMetrics.width + padding * 2, textHeight + padding);
 
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillText(labelText, x + padding, y - padding);
-                });
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillText(labelText, x + padding, y - padding);
+                    });
+                }
 
                 // Calculate FPS
                 fpsCounterRef.current++;

@@ -1,0 +1,8 @@
+// Add this useEffect after line 53 in CameraDetection.jsx
+
+// Reset detection flag when resuming from pause
+useEffect(() => {
+    if (!isPaused) {
+        isDetectingRef.current = false;
+    }
+}, [isPaused]);

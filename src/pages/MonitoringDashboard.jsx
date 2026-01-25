@@ -24,6 +24,7 @@ import voiceAlert from '../services/voiceAlert';
 
 export default function MonitoringDashboard() {
     const [currentTrip, setCurrentTrip] = useState(null);
+    const [isPaused, setIsPaused] = useState(false);
     const [detectionStats, setDetectionStats] = useState({
         awake: 0,
         distracted: 0,
@@ -58,7 +59,7 @@ export default function MonitoringDashboard() {
 
             // Update location every 30 seconds during trip
             const locationInterval = setInterval(() => {
-                if (isTripActiveRef.current) {
+                if (isTripActiveRef.current && !isPaused) {
                     navigator.geolocation.getCurrentPosition(
                         (position) => {
                             const location = `${position.coords.latitude},${position.coords.longitude}`;
@@ -73,7 +74,7 @@ export default function MonitoringDashboard() {
 
             return () => clearInterval(locationInterval);
         }
-    }, []);
+    }, [isPaused]);
 
     useEffect(() => {
         startTrip();
@@ -92,6 +93,16 @@ export default function MonitoringDashboard() {
             console.error('Error starting trip:', error);
             showError('Không thể bắt đầu hành trình');
         }
+    };
+
+    const handlePauseTrip = () => {
+        setIsPaused(true);
+        showSuccess('Đã tạm dừng giám sát. Nghỉ ngơi an toàn!');
+    };
+
+    const handleResumeTrip = () => {
+        setIsPaused(false);
+        showSuccess('Đã tiếp tục giám sát!');
     };
 
     const [isCritical, setIsCritical] = useState(false);
@@ -149,7 +160,7 @@ export default function MonitoringDashboard() {
     const ALERT_COOLDOWN = 15000; // 15 seconds
 
     const handleDetection = useCallback(async (data) => {
-        if (!currentTrip || !isTripActiveRef.current) return;
+        if (!currentTrip || !isTripActiveRef.current || isPaused) return;
 
         const { detections, alarmState, triggerAlarm, imageSrc } = data; // Assuming imageSrc might be passed, or we ignore for now
         setCurrentAlarmState(alarmState);
@@ -270,7 +281,7 @@ export default function MonitoringDashboard() {
             };
             setRecentEvents(prev => [event, ...prev].slice(0, 10));
         }
-    }, [currentTrip, playCriticalSound, playReminderSound, showWarning, showError]);
+    }, [currentTrip, isPaused, playCriticalSound, playReminderSound, showWarning, showError]);
 
 
 
@@ -320,7 +331,16 @@ export default function MonitoringDashboard() {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                     <div className="lg:col-span-8 flex flex-col gap-6">
                         <div className="relative ring-4 ring-gray-100 dark:ring-gray-800/50 rounded-2xl overflow-hidden">
-                            <CameraDetection onDetection={handleDetection} />
+                            {isPaused && (
+                                <div className="absolute inset-0 bg-black/60 z-10 flex items-center justify-center backdrop-blur-sm">
+                                    <div className="text-center">
+                                        <span className="material-symbols-outlined text-yellow-400 text-6xl mb-4 animate-pulse">pause_circle</span>
+                                        <h3 className="text-2xl font-bold text-white mb-2">Đã tạm dừng</h3>
+                                        <p className="text-gray-300">Giám sát sẽ tiếp tục khi bạn nhấn "Tiếp tục"</p>
+                                    </div>
+                                </div>
+                            )}
+                            <CameraDetection onDetection={handleDetection} isPaused={isPaused} />
                         </div>
 
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -384,17 +404,36 @@ export default function MonitoringDashboard() {
                             </div>
                         </Card>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <Link to="/driver-dashboard" className="flex flex-col items-center justify-center p-5 bg-white dark:bg-secondary-dark border-2 border-gray-200 dark:border-gray-700 hover:border-primary dark:hover:border-primary text-gray-700 dark:text-gray-300 hover:text-primary rounded-2xl shadow-sm hover:shadow-md transition-all group">
-                                <span className="material-symbols-outlined text-4xl mb-2 group-hover:scale-110 transition-transform">dashboard</span>
-                                <span className="font-bold text-sm">Dashboard</span>
+                        <div className="grid grid-cols-3 gap-3">
+                            <Link to="/driver-dashboard" className="flex flex-col items-center justify-center p-4 bg-white dark:bg-secondary-dark border-2 border-gray-200 dark:border-gray-700 hover:border-primary dark:hover:border-primary text-gray-700 dark:text-gray-300 hover:text-primary rounded-2xl shadow-sm hover:shadow-md transition-all group">
+                                <span className="material-symbols-outlined text-3xl mb-1 group-hover:scale-110 transition-transform">dashboard</span>
+                                <span className="font-bold text-xs">Dashboard</span>
                             </Link>
+
+                            {!isPaused ? (
+                                <button
+                                    onClick={handlePauseTrip}
+                                    className="flex flex-col items-center justify-center p-4 bg-white dark:bg-secondary-dark border-2 border-yellow-100 dark:border-yellow-900/30 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/10 rounded-2xl shadow-sm hover:shadow-md transition-all group"
+                                >
+                                    <span className="material-symbols-outlined text-3xl mb-1 group-hover:scale-110 transition-transform">pause_circle</span>
+                                    <span className="font-bold text-xs">Tạm dừng</span>
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={handleResumeTrip}
+                                    className="flex flex-col items-center justify-center p-4 bg-white dark:bg-secondary-dark border-2 border-green-100 dark:border-green-900/30 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/10 rounded-2xl shadow-sm hover:shadow-md transition-all group animate-pulse"
+                                >
+                                    <span className="material-symbols-outlined text-3xl mb-1 group-hover:scale-110 transition-transform">play_circle</span>
+                                    <span className="font-bold text-xs">Tiếp tục</span>
+                                </button>
+                            )}
+
                             <button
                                 onClick={handleEndTrip}
-                                className="flex flex-col items-center justify-center p-5 bg-white dark:bg-secondary-dark border-2 border-red-100 dark:border-red-900/30 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-2xl shadow-sm hover:shadow-md transition-all group"
+                                className="flex flex-col items-center justify-center p-4 bg-white dark:bg-secondary-dark border-2 border-red-100 dark:border-red-900/30 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-2xl shadow-sm hover:shadow-md transition-all group"
                             >
-                                <span className="material-symbols-outlined text-4xl mb-2 group-hover:scale-110 transition-transform">stop_circle</span>
-                                <span className="font-bold text-sm">Kết thúc</span>
+                                <span className="material-symbols-outlined text-3xl mb-1 group-hover:scale-110 transition-transform">stop_circle</span>
+                                <span className="font-bold text-xs">Kết thúc</span>
                             </button>
                         </div>
 
